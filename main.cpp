@@ -11,6 +11,7 @@
 #include "leveldb/zlib_compressor.h"
 
 #include "block2.h"
+#include "tblock.h"
 
 using namespace std;
 
@@ -158,7 +159,7 @@ int extractchunk(const void *data, int size, int y) {
 	wpos += 2048;
 	memcpy(wbuf + wpos, header_blocklight, sizeof(header_blocklight));
 	wpos += sizeof(header_blocklight);
-	memset(wbuf + wpos, 0xff, 2048);
+	memset(wbuf + wpos, 0, 2048);
 	wpos += 2048;
 	memcpy(wbuf + wpos, footer, sizeof(footer));
 	wbuf[wpos + 4] = y;
@@ -256,6 +257,32 @@ int writechunk(int x, int z) {
 	return 0;
 }
 
+void updatelight(int cnt) {
+	int ychunksize = sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight) + 2048 + sizeof(header_blocklight) + 2048 + sizeof(footer);
+	if (!cnt)
+		return;
+
+	for (int xz = 0; xz < 256; xz++) {
+		int hide = 0;
+		for (int y = (cnt << 4) - 1; y >= 0; y--) {
+			unsigned char *b = wbuf + sizeof(header) + (y / 16) * ychunksize + sizeof(header_blocks);
+			unsigned char *l = b + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight);
+			int xx = xz | ((y & 0xF) << 8);
+			if (!hide && !tblocks[b[xx]])
+				hide = 1;
+			else if (hide) {
+				if (!(xx & 1))
+					l[xx/2] = (l[xx/2] & 0xF0) | 0x0d;
+				else
+					l[xx/2] = (l[xx/2] & 0x0F) | 0xd0;
+			}
+		}
+	}
+//	printf("cnt=%d, wpos=%d\n", cnt, wpos);
+//	hexdump(wbuf,wpos);
+//	exit(0);
+}
+
 int main(int argc, char** argv)
 {
     // Set up database connection information and open database
@@ -313,6 +340,8 @@ int main(int argc, char** argv)
 		if (str[8] != 47)
 			continue;
 		if (lx != x || lz != z) {
+			updatelight(cnt);
+
 			memcpy(wbuf + wpos, ender, sizeof(ender));
 			wpos += sizeof(ender);
 			*(unsigned int *)(wbuf + 0x2d) = htonl(cnt);
