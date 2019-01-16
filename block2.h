@@ -168,7 +168,7 @@ const char *blocknames[] = {
 "minecraft:barrier",
 "minecraft:iron_trapdoor",
 "minecraft:prismarine",
-"minecraft:sea_lantern",
+"minecraft:seaLantern",
 "minecraft:hay_block",
 "minecraft:carpet",
 "minecraft:hardened_clay",

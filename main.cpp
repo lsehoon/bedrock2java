@@ -12,6 +12,8 @@
 
 #include "block2.h"
 #include "tblock.h"
+#include "sblock.h"
+#include "alias.h"
 
 using namespace std;
 
@@ -38,13 +40,34 @@ void hexdump(const void *p, int len) {
 }
 
 unsigned char header[] = {
- 0x0a,0x00 ,0x00,0x0a ,0x00,0x05 ,0x4c,0x65 ,0x76,0x65 ,0x6c,0x03 ,0x00,0x04 ,0x78,0x50
+ 0x0a,0x00 ,0x00,0x0a ,0x00,0x05 ,0x4c,0x65 ,0x76,0x65 ,0x6c, 
+ 0x07, 0x00, 0x06, 'B', 'i', 'o', 'm', 'e', 's', 0x00, 0x00, 0x01, 0x00,
+
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+
+ 0x03 ,0x00,0x04 ,0x78,0x50
 ,0x6f,0x73 ,0x00,0x00 ,0x00,0x00 ,0x03,0x00 ,0x04,0x7a ,0x50,0x6f ,0x73,0x00 ,0x00,0x00
 ,0x09,0x09 ,0x00,0x08 ,0x53,0x65 ,0x63,0x74 ,0x69,0x6f ,0x6e,0x73 ,0x0a,0x00 ,0x00,0x00
 ,0x00,
 };
 
-//xpos: 0x12, zpos: 0x1d, cnt: 0x2d
+//xpos: 0x12+269, zpos: 0x1d+269, cnt: 0x2d+269
 
 unsigned char header_blocks[] = {
  0x07 ,0x00,0x06 ,0x42,0x6c ,0x6f,0x63 ,0x6b,0x73 ,0x00,0x00 ,0x10,0x00
@@ -111,21 +134,46 @@ int extractchunk(const void *data, int size, int y) {
 			d += l; size -= l;
 
 			l = *(unsigned short *)d;
-			int block = -1;
-			for (int j = 0; j < sizeof(blocknames)/sizeof(char *); j++) {
-				if (l != strlen(blocknames[j]))
+			int block = -1, data = -1, len = l;
+			unsigned char *name = d + 2;
+
+			for (int j = 0; j < sizeof(aliases)/sizeof(*aliases); j++) {
+				if (l != strlen(aliases[j].bedname))
 					continue;
-				if (!memcmp(blocknames[j], d + 2, l)) {
+				if (!memcmp(aliases[j].bedname, name, len)) {
+					name = (unsigned char *)aliases[j].javaname;
+					len = strlen((char *)name);
+					data = aliases[j].data;
+					break;
+				}
+			}
+
+			for (int j = 0; j < sizeof(blocknames)/sizeof(char *); j++) {
+				if (len != strlen(blocknames[j]))
+					continue;
+				if (!memcmp(blocknames[j], name, len)) {
 					block = j;
 					break;
 				}
 			}
 			if (block == -1) {
-//				fwrite(d + 2, l, 1, stdout);
-//				fprintf(stdout, "\n");
-				block = 0;
+				for (int j = 0; j < sizeof(sblocks)/sizeof(char *); j++) {
+					if (len != strlen(sblocks[j]))
+						continue;
+					if (!memcmp(sblocks[j], name, len)) {
+						block = 9;
+						data = 0;
+						break;
+					}
+				}
+
+				if (block == -1) {
+					fwrite(name, len, 1, stdout);
+					fprintf(stdout, "\n");
+					block = 0;
+				}
 			}
-				
+
 			d += l + 2; size -= l + 2;
 
 			if (d[0] != 2)
@@ -138,7 +186,9 @@ int extractchunk(const void *data, int size, int y) {
 			d += l; size -= l;
 
 			btable[i] = block;
-			dtable[i] = d[0];
+			if (data == -1)
+				data = d[0];
+			dtable[i] = data;
 
 			d += 3; size -= 3;
 			i++;
@@ -270,7 +320,7 @@ void updatelight(int cnt) {
 			int xx = xz | ((y & 0xF) << 8);
 			if (!hide && !tblocks[b[xx]])
 				hide = 1;
-			else if (hide) {
+			if (hide) {
 				if (!(xx & 1))
 					l[xx/2] = (l[xx/2] & 0xF0) | 0x0d;
 				else
@@ -337,14 +387,15 @@ int main(int argc, char** argv)
 		//if (str[8] == 47 && data[2] == 12)
 		//	hexdump(it->value().data(), it->value().size());
 		
-		if (str[8] != 47)
+		if (str[8] != 45 && str[8] != 47)
 			continue;
+
 		if (lx != x || lz != z) {
 			updatelight(cnt);
 
 			memcpy(wbuf + wpos, ender, sizeof(ender));
 			wpos += sizeof(ender);
-			*(unsigned int *)(wbuf + 0x2d) = htonl(cnt);
+			*(unsigned int *)(wbuf + 0x2d + 269) = htonl(cnt);
 			if (ret = writechunk(lx, lz)) {
 				printf("writechunk:%d\n", ret);
 				return -3;
@@ -352,10 +403,13 @@ int main(int argc, char** argv)
 			memcpy(wbuf, header, sizeof(header));
 			wpos = sizeof(header);
 			cnt = 0;
-			*(unsigned int *)(wbuf + 0x12) = htonl(x);
-			*(unsigned int *)(wbuf + 0x1d) = htonl(z);
+			*(unsigned int *)(wbuf + 0x12 + 269) = htonl(x);
+			*(unsigned int *)(wbuf + 0x1d + 269) = htonl(z);
 		}
-		if (str[8] == 47) {
+		if (str[8] == 45) {
+			memcpy(wbuf + 24, data + 0x200, 256);
+		}
+		else if (str[8] == 47) {
 			if (ret = extractchunk(data, it->value().size(), str[9])) {
 				printf("extractchunk:%d\n", ret);
 				return -2;
