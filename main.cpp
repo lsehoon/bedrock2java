@@ -3,6 +3,8 @@
 #include <string>
 #include <arpa/inet.h>
 #include <zlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "leveldb/db.h"
 #include "leveldb/decompress_allocator.h"
@@ -270,6 +272,8 @@ int main(int argc, char** argv)
 		return -2;
 	}
 	sprintf(path, "%s/db", argv[1]);
+
+	mkdir("region", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
     options.create_if_missing = false;
 	//options.filter_policy = leveldb::NewBloomFilterPolicy(10);
