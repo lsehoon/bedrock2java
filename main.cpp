@@ -40,7 +40,7 @@ void hexdump(const void *p, int len) {
 }
 
 unsigned char header[] = {
- 0x0a,0x00 ,0x00,0x0a ,0x00,0x05 ,0x4c,0x65 ,0x76,0x65 ,0x6c, 
+ 0x0a,0x00 ,0x00,0x0a ,0x00,0x05 ,0x4c,0x65 ,0x76,0x65 ,0x6c,
  0x07, 0x00, 0x06, 'B', 'i', 'o', 'm', 'e', 's', 0x00, 0x00, 0x01, 0x00,
 
  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -61,6 +61,13 @@ unsigned char header[] = {
  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 
+
+ 0x01, 0x00, 0x10, 'T', 'e', 'r', 'r', 'a', 'i', 'n',
+ 'P', 'o', 'p',  'u', 'l', 'a', 't', 'e', 'd', 1,
+
+ 0x09, 0x00, 0x0c, 'T', 'i', 'l', 'e', 'E', 'n', 't', 'i', 't', 'i', 'e', 's',
+ 0x00, 0x00, 0x00, 0x00, 0x00,
+
  0x03 ,0x00,0x04 ,0x78,0x50
 ,0x6f,0x73 ,0x00,0x00 ,0x00,0x00 ,0x03,0x00 ,0x04,0x7a ,0x50,0x6f ,0x73,0x00 ,0x00,0x00
 ,0x09,0x09 ,0x00,0x08 ,0x53,0x65 ,0x63,0x74 ,0x69,0x6f ,0x6e,0x73 ,0x0a,0x00 ,0x00,0x00
@@ -68,6 +75,7 @@ unsigned char header[] = {
 };
 
 //xpos: 0x12+269, zpos: 0x1d+269, cnt: 0x2d+269
+//xpos: 0x3A+269, zpos: 0x45+269, cnt: 0x55+269
 
 unsigned char header_blocks[] = {
  0x07 ,0x00,0x06 ,0x42,0x6c ,0x6f,0x63 ,0x6b,0x73 ,0x00,0x00 ,0x10,0x00
@@ -105,7 +113,7 @@ int extractchunk(const void *data, int size, int y) {
 
 	if (d[0] != 8)
 		return -1; //unsupported version
-	
+
 	int count = d[1];
 	int bpb = d[2];
 
@@ -130,7 +138,7 @@ int extractchunk(const void *data, int size, int y) {
 
 		if (t == 8) {
 			if (l != 4 || memcmp("name", d, 4))
-				return -3; //parse error 
+				return -3; //parse error
 			d += l; size -= l;
 
 			l = *(unsigned short *)d;
@@ -182,7 +190,7 @@ int extractchunk(const void *data, int size, int y) {
 			l = *(unsigned short *)(d + 1);
 			d += 3; size -= 3;
 			if (l != 3 || memcmp("val", d, 3))
-				return -5; //parse error 
+				return -5; //parse error
 			d += l; size -= l;
 
 			btable[i] = block;
@@ -223,7 +231,7 @@ int extractchunk(const void *data, int size, int y) {
 			return -6; //out of bound
 
 		int xx = ((x & 0xF) << 8) | (x >> 8) | (x & 0xF0);
-		
+
 		bbuf[xx] = btable[idx];
 		if (!(xx & 1))
 			dbuf[xx/2] |= dtable[idx];
@@ -247,7 +255,7 @@ int writechunk(int x, int z) {
 	char fn[1024];
 	sprintf(fn, "region/r.%d.%d.mca", x >> 5, z >> 5);
 
-	unsigned int locations[1024], timestamps[1024]; 
+	unsigned int locations[1024], timestamps[1024];
 	int offset = ((x & 31) + (z & 31) * 32);
 
 	FILE *fp = fopen(fn, "rb+");
@@ -276,7 +284,7 @@ int writechunk(int x, int z) {
 		fseek(fp, 0, SEEK_SET);
 		fwrite(locations, 4096, 1, fp);
 		fwrite(timestamps, 4096, 1, fp);
-		
+
 		fclose(fp);
 		fp = fopen(fn, "ab");
 		if (fp == NULL)
@@ -303,7 +311,7 @@ int writechunk(int x, int z) {
 
 	fwrite(cbuf, 12288, 1, fp);
 	fclose(fp);
-	
+
 	return 0;
 }
 
@@ -370,10 +378,10 @@ int main(int argc, char** argv)
         cerr << status.ToString() << endl;
         return -1;
     }
-    
+
     // Iterate over each item in the database and print them
     leveldb::Iterator* it = db->NewIterator(readOptions);
-    
+
 	int lx = 0x7fffffff, lz = 0x7fffffff, ret = 0, cnt = 0;
     for (it->SeekToFirst(); it->Valid(); it->Next())
     {
@@ -386,7 +394,7 @@ int main(int argc, char** argv)
 
 		//if (str[8] == 47 && data[2] == 12)
 		//	hexdump(it->value().data(), it->value().size());
-		
+
 		if (str[8] != 45 && str[8] != 47)
 			continue;
 
@@ -395,7 +403,7 @@ int main(int argc, char** argv)
 
 			memcpy(wbuf + wpos, ender, sizeof(ender));
 			wpos += sizeof(ender);
-			*(unsigned int *)(wbuf + 0x2d + 269) = htonl(cnt);
+			*(unsigned int *)(wbuf + 0x55 + 269) = htonl(cnt);
 			if (ret = writechunk(lx, lz)) {
 				printf("writechunk:%d\n", ret);
 				return -3;
@@ -403,8 +411,8 @@ int main(int argc, char** argv)
 			memcpy(wbuf, header, sizeof(header));
 			wpos = sizeof(header);
 			cnt = 0;
-			*(unsigned int *)(wbuf + 0x12 + 269) = htonl(x);
-			*(unsigned int *)(wbuf + 0x1d + 269) = htonl(z);
+			*(unsigned int *)(wbuf + 0x3A + 269) = htonl(x);
+			*(unsigned int *)(wbuf + 0x45 + 269) = htonl(z);
 		}
 		if (str[8] == 45) {
 			memcpy(wbuf + 24, data + 0x200, 256);
@@ -425,15 +433,15 @@ int main(int argc, char** argv)
 		printf("writechunk:%d\n", ret);
 		return -3;
 	}
-    
+
     if (false == it->status().ok())
     {
         cerr << "An error was found during the scan" << endl;
-        cerr << it->status().ToString() << endl; 
+        cerr << it->status().ToString() << endl;
     }
-    
+
     delete it;
-    
+
     // Close the database
     delete db;
 }
