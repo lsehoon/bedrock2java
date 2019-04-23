@@ -251,6 +251,25 @@ int extractchunk(const void *data, int size, int y) {
 int writechunk(int x, int z) {
 	if (x == 0x7fffffff || z == 0x7fffffff)
 		return 0;
+    int i, j;
+    for (i = 0; i < wpos; i+=16) {
+        for (j = 0; j < 16; j++) {
+            if (i + j < wpos) {
+                if (wbuf[i+j] == 0x73)
+                if (wbuf[i+j+1] == 0x0A)
+                if (wbuf[i+j+2] == 0x00)
+                if (wbuf[i+j+3] == 0x00)
+                if (wbuf[i+j+4] == 0x00)
+                if (wbuf[i+j+5] == 0x00) {
+                    if (x == -1 && z == -1) {
+                        wbuf[i+j+5] = 0x01;
+                        memcpy(wbuf + wpos, ender, sizeof(ender));
+                        wpos += sizeof(ender);
+                    }
+                }
+            }
+        }
+    }
 
 	char fn[1024];
 	sprintf(fn, "region/r.%d.%d.mca", x >> 5, z >> 5);
