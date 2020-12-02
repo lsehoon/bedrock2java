@@ -107,10 +107,11 @@ unsigned int wpos = 0;
 unsigned char cbuf[1048576];
 long unsigned int cpos = 0;
 
-int extractchunk(const void *data, int size, int y) {
+int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 	unsigned char *d = (unsigned char *)data;
 	unsigned char btable[4096], dtable[4096];
 
+	//printf("extractchunk - cx:%d cy:%d cz:%d\n", cx, cy, cz);
 	if (d[0] != 8)
 		return -1; //unsupported version
 
@@ -131,19 +132,24 @@ int extractchunk(const void *data, int size, int y) {
 	if (typecnt > mask + 1)
 		return -2; //parse error
 	d += 4; size -= 4;
-	for (int i = 0; i < typecnt;) {
+	for (int i = 0; size > 0 && i < typecnt;) {
 		int t = d[0];
 		unsigned int l = *(unsigned short *)(d + 1);
 		d += 3; size -= 3;
 
 		if (t == 8) {
-			if (l != 4 || memcmp("name", d, 4))
-				return -3; //parse error
+			if (l != 4 || memcmp("name", d, 4)) {
+				d += l; size -= l;
+				
+				continue;
+			}
 			d += l; size -= l;
 
 			l = *(unsigned short *)d;
 			int block = -1, data = -1, len = l;
 			unsigned char *name = d + 2;
+	//		fwrite(name, len, 1, stdout);
+	//		printf("\n");
 
 			for (int j = 0; j < sizeof(aliases)/sizeof(*aliases); j++) {
 				if (l != strlen(aliases[j].bedname))
@@ -184,22 +190,28 @@ int extractchunk(const void *data, int size, int y) {
 
 			d += l + 2; size -= l + 2;
 
-			if (d[0] != 2)
-				return -4; //parse error
+			if (size <= 0 || d[0] == 8) {
+				continue;
+			}
 
-			l = *(unsigned short *)(d + 1);
-			d += 3; size -= 3;
-			if (l != 3 || memcmp("val", d, 3))
-				return -5; //parse error
-			d += l; size -= l;
+			while (size > 0 && d[0] != 8) {
+				l = *(unsigned short *)(d + 1);
 
-			btable[i] = block;
-			if (data == -1)
-				data = d[0];
-			dtable[i] = data;
+				d += 3; size -= 3;
+				if (d[-3] != 2 || l != 3 || memcmp("val", d, 3)) {
+					d += l; size -= l;
+					continue;
+				}
+				d += l; size -= l;
 
-			d += 3; size -= 3;
-			i++;
+				btable[i] = block;
+				if (data == -1)
+					data = d[0];
+				dtable[i] = data;
+				i++;
+
+				d += 3; size -= 3;
+			}
 		}
 	}
 
@@ -220,9 +232,8 @@ int extractchunk(const void *data, int size, int y) {
 	memset(wbuf + wpos, 0, 2048);
 	wpos += 2048;
 	memcpy(wbuf + wpos, footer, sizeof(footer));
-	wbuf[wpos + 4] = y;
+	wbuf[wpos + 4] = cy;
 	wpos += sizeof(footer);
-
 	memset(dbuf, 0, 2048);
 
 	for (int x = 0; x < 4096; x++) {
@@ -233,6 +244,8 @@ int extractchunk(const void *data, int size, int y) {
 		int xx = ((x & 0xF) << 8) | (x >> 8) | (x & 0xF0);
 
 		bbuf[xx] = btable[idx];
+//		if (bbuf[xx] == 52 && cx > -0 && cx < 32 && cz > -16 && cz < 16)
+//			printf("(%d,%d,%d)\n", (cx<<4)|(xx&0xF), (cy<<4)|((xx>>8)&0xF), (cz<<4)|((xx>>4)&0xF));
 		if (!(xx & 1))
 			dbuf[xx/2] |= dtable[idx];
 		else
@@ -435,9 +448,16 @@ int main(int argc, char** argv)
 		}
 		if (str[8] == 45) {
 			memcpy(wbuf + 24, data + 0x200, 256);
+//			for (int i = 0; i < 256; i++) {
+//				unsigned char c = data[0x200 + i];
+//				if (c == 21 || c == 22 || c ==149 || c == 23 || c == 151) {
+//					printf("x:%d z:%d - %d\n", x, z, c);   
+//					break;
+//				}
+//			}
 		}
 		else if (str[8] == 47) {
-			if (ret = extractchunk(data, it->value().size(), str[9])) {
+			if (ret = extractchunk(data, it->value().size(), x, str[9], z)) {
 				printf("extractchunk:%d\n", ret);
 				return -2;
 			}

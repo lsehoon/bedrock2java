@@ -15,8 +15,13 @@ struct alias_t {
 {"minecraft:frame",                  "minecraft:air", 0},
 {"minecraft:stripped_dark_oak_log",  "minecraft:log2", 1},
 {"minecraft:dark_oak_trapdoor",      "minecraft:trapdoor", 0},
+{"minecraft:birch_trapdoor",         "minecraft:trapdoor", 0},
 {"minecraft:dark_oak_button",        "minecraft:wooden_button", 0},
 {"minecraft:birch_button",           "minecraft:wooden_button", 0},
 {"minecraft:stripped_jungle_log",    "minecraft:log", 3},
 {"minecraft:jungle_trapdoor",        "minecraft:trapdoor", 0},
+{"minecraft:concretePowder",         "minecraft:concrete_powder", -1},
+{"minecraft:shulker_box",            "minecraft:magenta_shulker_box", 0},
+{"minecraft:undyed_shulker_box",     "minecraft:magenta_shulker_box", 0},
+{"minecraft:acacia_wall_sign",       "minecraft:sign", 0},
 };
