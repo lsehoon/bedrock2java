@@ -111,7 +111,6 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 	unsigned char *d = (unsigned char *)data;
 	unsigned char btable[4096], dtable[4096];
 
-	//printf("extractchunk - cx:%d cy:%d cz:%d\n", cx, cy, cz);
 	if (d[0] != 8)
 		return -1; //unsupported version
 
@@ -128,91 +127,103 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 
 	d += blen * 4 + 3;
 	size -= blen * 4 + 3;
-	unsigned int typecnt = *(unsigned int *)d;
+	int typecnt = *(unsigned int *)d;
 	if (typecnt > mask + 1)
 		return -2; //parse error
 	d += 4; size -= 4;
-	for (int i = 0; size > 0 && i < typecnt;) {
+	int i = -1;
+	unsigned int l;
+
+	for (; size > 0 && i < typecnt;) {
 		int t = d[0];
-		unsigned int l = *(unsigned short *)(d + 1);
-		d += 3; size -= 3;
+//			printf("t:%d\n", t);
+		d += 1; size -= 1;
+		if (t == 0)
+			continue;
+
+		l = *(unsigned short *)d;
+		d += 2; size -= 2;
 
 		if (t == 8) {
-			if (l != 4 || memcmp("name", d, 4)) {
+			if (l == 4 && !memcmp("name", d, l)) {
 				d += l; size -= l;
-				
-				continue;
-			}
-			d += l; size -= l;
+				l = *(unsigned short *)d;
+				d += 2; size -= 2;
 
-			l = *(unsigned short *)d;
-			int block = -1, data = -1, len = l;
-			unsigned char *name = d + 2;
-	//		fwrite(name, len, 1, stdout);
-	//		printf("\n");
+				int block = -1, data = -1, len = l;
+				unsigned char *name = d;
+//				fwrite(name, len, 1, stdout);
+//				printf("\n");
+				i++;
 
-			for (int j = 0; j < sizeof(aliases)/sizeof(*aliases); j++) {
-				if (l != strlen(aliases[j].bedname))
-					continue;
-				if (!memcmp(aliases[j].bedname, name, len)) {
-					name = (unsigned char *)aliases[j].javaname;
-					len = strlen((char *)name);
-					data = aliases[j].data;
-					break;
-				}
-			}
-
-			for (int j = 0; j < sizeof(blocknames)/sizeof(char *); j++) {
-				if (len != strlen(blocknames[j]))
-					continue;
-				if (!memcmp(blocknames[j], name, len)) {
-					block = j;
-					break;
-				}
-			}
-			if (block == -1) {
-				for (int j = 0; j < sizeof(sblocks)/sizeof(char *); j++) {
-					if (len != strlen(sblocks[j]))
+				for (int j = 0; j < sizeof(aliases)/sizeof(*aliases); j++) {
+					if (l != strlen(aliases[j].bedname))
 						continue;
-					if (!memcmp(sblocks[j], name, len)) {
-						block = 9;
-						data = 0;
+					if (!memcmp(aliases[j].bedname, name, len)) {
+						name = (unsigned char *)aliases[j].javaname;
+						len = strlen((char *)name);
+						data = aliases[j].data;
 						break;
 					}
 				}
 
+				for (int j = 0; j < sizeof(blocknames)/sizeof(char *); j++) {
+					if (len != strlen(blocknames[j]))
+						continue;
+					if (!memcmp(blocknames[j], name, len)) {
+						block = j;
+						break;
+					}
+				}
 				if (block == -1) {
-					fwrite(name, len, 1, stdout);
-					fprintf(stdout, "\n");
-					block = 0;
+					for (int j = 0; j < sizeof(sblocks)/sizeof(char *); j++) {
+						if (len != strlen(sblocks[j]))
+							continue;
+						if (!memcmp(sblocks[j], name, len)) {
+							block = 9;
+							data = 0;
+							break;
+						}
+					}
+
+					if (block == -1) {
+						fwrite(name, len, 1, stdout);
+						fprintf(stdout, "\n");
+						block = 0;
+					}
 				}
-			}
-
-			d += l + 2; size -= l + 2;
-
-			if (size <= 0 || d[0] == 8) {
-				continue;
-			}
-
-			while (size > 0 && d[0] != 8) {
-				l = *(unsigned short *)(d + 1);
-
-				d += 3; size -= 3;
-				if (d[-3] != 2 || l != 3 || memcmp("val", d, 3)) {
-					d += l; size -= l;
-					continue;
-				}
-				d += l; size -= l;
-
 				btable[i] = block;
-				if (data == -1)
-					data = d[0];
-				dtable[i] = data;
-				i++;
-
+				dtable[i] = 0;
+				d += l; size -= l;
+			}
+			else {
+				d += l; size -= l;
+				l = *(unsigned short *)d;
+				d += 2; size -= 2;
+				d += l; size -= l;
+			}
+		}
+		else if (t == 3) {
+			d += l + 4; size -= l + 4;
+		}
+		else if (t == 2) {
+			if (l == 3 && !memcmp("val", d, l)) {
+				d += l; size -= l;
+				dtable[i] = d[0];
 				d += 3; size -= 3;
 			}
 		}
+		else if (t == 1) {
+			d += l + 1; size -= l + 1;
+		}
+		else  {
+			d += l; size -= l;
+		}
+	}
+	i++;
+	if (i < typecnt) {
+		printf("no block info %d %d %d\n", i, typecnt);
+		return -33;
 	}
 
 	memcpy(wbuf + wpos, header_blocks, sizeof(header_blocks));
@@ -458,7 +469,8 @@ int main(int argc, char** argv)
 		}
 		else if (str[8] == 47) {
 			if (ret = extractchunk(data, it->value().size(), x, str[9], z)) {
-				printf("extractchunk:%d\n", ret);
+				printf("extractchunk:%d - cx:%d cy:%d cz:%d\n", ret, x, str[9], z);
+				hexdump(data, it->value().size());
 				return -2;
 			}
 			cnt++;
