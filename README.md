@@ -16,3 +16,8 @@ make
 - Copy map files from Minecraft BE folder to `map/`
 - Run `bed2java map` to convert the map. converted files will be saved to `region/`
 - Run `overviewer.py --rendermodes=smooth-lighting --forcerender . /path/to/output` to build the map.
+
+## Notes
+Block IDs of Minecraft BE are different from Minecraft Java Edition. So some blocks may be missing or looks differnt.
+
+[Sample overviewer page - https://mybz.net/output](https://mybz.net/output)

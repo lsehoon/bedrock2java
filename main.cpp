@@ -14,6 +14,7 @@
 #include "tblock.h"
 #include "sblock.h"
 #include "alias.h"
+#include "btypes.h"
 
 using namespace std;
 
@@ -107,6 +108,20 @@ unsigned int wpos = 0;
 unsigned char cbuf[1048576];
 long unsigned int cpos = 0;
 
+int _indexof(const char **blocknames, int count, unsigned char *name, int len) {
+	for (int j = 0; j < count; j++) {
+		if (len != strlen(blocknames[j]))
+			continue;
+		if (!memcmp(blocknames[j], name, len)) {
+			return j;
+		}
+	}
+	return -1;
+}
+
+#define indexof(a) _indexof(a, sizeof(a)/sizeof(*(a)), d, l)
+#define nameis(a) (len == sizeof(a)-1 && !memcmp(a, name, len))
+
 int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 	unsigned char *d = (unsigned char *)data;
 	unsigned char btable[4096], dtable[4096];
@@ -131,7 +146,7 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 	if (typecnt > mask + 1)
 		return -2; //parse error
 	d += 4; size -= 4;
-	int i = -1;
+	int i = -1, dtabled = 0;
 	unsigned int l;
 
 	for (; size > 0 && i < typecnt;) {
@@ -150,11 +165,12 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 				l = *(unsigned short *)d;
 				d += 2; size -= 2;
 
-				int block = -1, data = -1, len = l;
+				int block = -1, data = 0, len = l;
 				unsigned char *name = d;
 //				fwrite(name, len, 1, stdout);
 //				printf("\n");
 				i++;
+				dtabled = 0;
 
 				for (int j = 0; j < sizeof(aliases)/sizeof(*aliases); j++) {
 					if (l != strlen(aliases[j].bedname))
@@ -163,6 +179,7 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 						name = (unsigned char *)aliases[j].javaname;
 						len = strlen((char *)name);
 						data = aliases[j].data;
+						dtabled = 1;
 						break;
 					}
 				}
@@ -193,23 +210,89 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 					}
 				}
 				btable[i] = block;
-				dtable[i] = 0;
+				dtable[i] = data;
 				d += l; size -= l;
 			}
 			else {
+				unsigned char *name = d;
+				int len = l;
+
 				d += l; size -= l;
 				l = *(unsigned short *)d;
 				d += 2; size -= 2;
+				int data = 0;
+
+				if (nameis("chisel_type"))
+					data = indexof(chisel_types);
+				else if (nameis("color"))
+					data = indexof(colors);
+				else if (nameis("double_plant_type"))
+					data = indexof(double_plant_types);
+				else if (nameis("flower_type"))
+					data = indexof(flower_types);
+				else if (nameis("new_leaf_type") || nameis("old_leaf_type") || nameis("sapling_type") || nameis("wood_type"))
+					data = indexof(wood_types);
+				else if (nameis("new_log_type")) {
+					data = (data << 2) | indexof(new_log_types);
+					dtabled = 0;
+				}
+				else if (nameis("old_log_type")) {
+					data = (data << 2) | indexof(old_log_types);
+					dtabled = 0;
+				}
+				else if (nameis("prismarine_block_type"))
+					data = indexof(prismarine_block_types);
+				else if (nameis("sand_stone_type"))
+					data = indexof(sand_stone_types);
+				else if (nameis("sand_type"))
+					data = indexof(sand_types);
+				else if (nameis("stone_brick_type"))
+					data = indexof(stone_brick_types);
+				else if (nameis("stone_slab_type"))
+					data = indexof(stone_slab_types);
+				else if (nameis("stone_slab_type_2"))
+					data = indexof(stone_slab2_types);
+				else if (nameis("stone_slab_type_3"))
+					data = indexof(stone_slab3_types);
+				else if (nameis("stone_slab_type_4"))
+					data = indexof(stone_slab4_types);
+				else if (nameis("stone_type"))
+					data = indexof(stone_types);
+				else if (nameis("torch_facing_direction"))
+					data = indexof(torch_facing_directions);
+				else if (nameis("tall_grass_type"))
+					data = indexof(tall_grass_types);
+
+
+				if (data >= 0) {
+					if (!dtabled)
+						dtable[i] = data;
+					dtabled = 1;
+				}
+				else {
+					fwrite(name, len, 1, stdout);
+					printf(":");
+					fwrite(d, l, 1, stdout);
+					printf("\n");
+				}
+
 				d += l; size -= l;
 			}
 		}
 		else if (t == 3) {
+			if ((l >= 9 && !memcmp("direction", d + (l - 9), 9)) || (l == 6 && !memcmp("growth", d, l)) || (l == 19 && !memcmp("vine_direction_bits", d, l)) || (l == 12 && !memcmp("liquid_depth", d, l)) || (l == 15 && !memcmp("redstone_signal", d, l))) {
+				if (!dtabled)
+					dtable[i] = d[l];
+				dtabled = 1;
+			}
 			d += l + 4; size -= l + 4;
 		}
 		else if (t == 2) {
 			if (l == 3 && !memcmp("val", d, l)) {
 				d += l; size -= l;
-				dtable[i] = d[0];
+				if (!dtabled)
+					dtable[i] = d[0];
+				dtabled = 1;
 				d += 3; size -= 3;
 			}
 		}
