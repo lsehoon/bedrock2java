@@ -146,10 +146,10 @@ const char *sand_stone_types[] = {
 
 const char *torch_facing_directions[] = {
 	"unknown",
-	"east",
 	"west",
-	"south",
+	"east",
 	"north",
+	"south",
 	"top",
 };
 

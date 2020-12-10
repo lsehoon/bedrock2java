@@ -18,6 +18,6 @@ make
 - Run `overviewer.py --rendermodes=smooth-lighting --forcerender . /path/to/output` to build the map.
 
 ## Notes
-Block IDs of Minecraft BE are different from Minecraft Java Edition. So some blocks may be missing or looks differnt.
+Block IDs of Minecraft BE are different from Minecraft Java Edition. So some blocks may be missing or looks different.
 
 [Sample overviewer page - https://mybz.net/output](https://mybz.net/output)

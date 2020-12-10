@@ -103,10 +103,24 @@ unsigned char ender[] = {
  0x00,0x00
 };
 
-unsigned char wbuf[1048576];
-unsigned int wpos = 0;
+struct chunk_t {
+	unsigned char wbuf[1048576];
+	unsigned int wpos;
+	int dirty;
+	int isloaded;
+	int x;
+	int z;
+	time_t timestamp;
+} chunks[9];
 unsigned char cbuf[1048576];
 long unsigned int cpos = 0;
+
+#define blockbase (sizeof(header) + sizeof(header_blocks))
+#define database (sizeof(header) + sizeof(header_blocks) + 4096 + sizeof(header_data))
+#define slightbase (sizeof(header) + sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight))
+#define blightbase (sizeof(header) + sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight) + 2048 + sizeof(header_blocklight))
+#define footerbase (sizeof(header) + sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight) + 2048 + sizeof(header_blocklight) + 2048)
+#define ychunksize (sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight) + 2048 + sizeof(header_blocklight) + 2048 + sizeof(footer))
 
 int _indexof(const char **blocknames, int count, unsigned char *name, int len) {
 	for (int j = 0; j < count; j++) {
@@ -123,6 +137,9 @@ int _indexof(const char **blocknames, int count, unsigned char *name, int len) {
 #define nameis(a) (len == sizeof(a)-1 && !memcmp(a, name, len))
 
 int extractchunk(const void *data, int size, int cx, int cy, int cz) {
+//	unsigned int wpos = chunks[4].wpos;
+	unsigned char *wbuf = chunks[4].wbuf + cy * ychunksize;
+
 	unsigned char *d = (unsigned char *)data;
 	unsigned char btable[4096], dtable[4096];
 
@@ -309,26 +326,18 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 		return -33;
 	}
 
-	memcpy(wbuf + wpos, header_blocks, sizeof(header_blocks));
-	wpos += sizeof(header_blocks);
-	unsigned char *bbuf = wbuf + wpos;
-	wpos += 4096;
-	memcpy(wbuf + wpos, header_data, sizeof(header_data));
-	wpos += sizeof(header_data);
-	unsigned char *dbuf = wbuf + wpos;
-	wpos += 2048;
-	memcpy(wbuf + wpos, header_skylight, sizeof(header_skylight));
-	wpos += sizeof(header_skylight);
-	memset(wbuf + wpos, 0xff, 2048);
-	wpos += 2048;
-	memcpy(wbuf + wpos, header_blocklight, sizeof(header_blocklight));
-	wpos += sizeof(header_blocklight);
-	memset(wbuf + wpos, 0, 2048);
-	wpos += 2048;
-	memcpy(wbuf + wpos, footer, sizeof(footer));
-	wbuf[wpos + 4] = cy;
-	wpos += sizeof(footer);
+	memcpy(wbuf + (blockbase - sizeof(header_blocks)), header_blocks, sizeof(header_blocks));
+	unsigned char *bbuf = wbuf + blockbase;
+	memcpy(wbuf + (database - sizeof(header_data)), header_data, sizeof(header_data));
+	unsigned char *dbuf = wbuf + database;
+	memcpy(wbuf + (slightbase - sizeof(header_skylight)), header_skylight, sizeof(header_skylight));
+//	memset(wbuf + slightbase, 0, 2048);
+	memcpy(wbuf + (blightbase - sizeof(header_blocklight)), header_blocklight, sizeof(header_blocklight));
+//	memset(wbuf + blightbase, 0, 2048);
+	memcpy(wbuf + footerbase, footer, sizeof(footer));
+	wbuf[footerbase + 4] = cy;
 	memset(dbuf, 0, 2048);
+//	chunks[4].wpos = footerbase + sizeof(footer);
 
 	for (int x = 0; x < 4096; x++) {
 		unsigned int idx = (n[x / blpw] >> ((x % blpw) * bipw)) & mask;
@@ -355,7 +364,54 @@ int extractchunk(const void *data, int size, int cx, int cy, int cz) {
 	return 0;
 }
 
-int writechunk(int x, int z) {
+int loadchunk(struct chunk_t *chunk) {
+	int x = chunk->x;
+	int z = chunk->z;
+	unsigned long wpos = sizeof(chunk->wbuf);
+	unsigned char *wbuf = chunk->wbuf;
+	chunk->dirty = 0;
+
+	char fn[1024];
+	sprintf(fn, "region/r.%d.%d.mca", x >> 5, z >> 5);
+
+	unsigned int locations[1024], timestamps[1024];
+	int offset = ((x & 31) + (z & 31) * 32);
+
+	FILE *fp = fopen(fn, "rb+");
+	if (fp == NULL)
+		goto failed;
+	fread(locations, 4096, 1, fp);
+	fread(timestamps, 4096, 1, fp);
+
+	if (locations[offset] == 0)
+		goto failed;
+
+	fseek(fp, (htonl(locations[offset]) & ~0xFF) << 4, SEEK_SET);
+	fread(cbuf, 12288, 1, fp);
+	cpos = htonl(*(unsigned int *)cbuf) - 1;
+	if (uncompress(wbuf, &wpos, cbuf + 5, cpos) != Z_OK)
+		goto failed;
+
+	fclose(fp);
+	chunk->timestamp = htonl(timestamps[offset]);
+	chunk->isloaded = 1;
+	chunk->wpos = wpos;
+
+	return 0;
+failed:
+	if (fp != NULL)
+		fclose(fp);
+	chunk->isloaded = -1;
+	memset(chunk->wbuf, 0, sizeof(chunk->wbuf));
+
+	return -1;
+}
+
+int writechunk(struct chunk_t *chunk) {
+	int x = chunk->x;
+	int z = chunk->z;
+	unsigned int wpos = chunk->wpos;
+	unsigned char *wbuf = chunk->wbuf;
 	if (x == 0x7fffffff || z == 0x7fffffff)
 		return 0;
     int i, j;
@@ -441,30 +497,123 @@ int writechunk(int x, int z) {
 	return 0;
 }
 
+
+long long lmx, lmz;
+
+#define blockdata(x,y,z) (chunks[(((z)-lmz) >> 4) * 3 + (((x)-lmx) >> 4)].wbuf[blockbase + (((y) >> 4) & 0xF) * ychunksize + ((((z) & 0xF) << 4) | ((x) & 0xF) | (((y) & 0xF) << 8))])
+#define slightdata(x,y,z) (chunks[(((z)-lmz) >> 4) * 3 + (((x)-lmx) >> 4)].wbuf[slightbase + (((y) >> 4) & 0xF) * ychunksize + ((((z) & 0xF) << 3) | (((x) & 0xF) >> 1) | (((y) & 0xF) << 7))])
+#define blightdata(x,y,z) (chunks[(((z)-lmz) >> 4) * 3 + (((x)-lmx) >> 4)].wbuf[blightbase + (((y) >> 4) & 0xF) * ychunksize + ((((z) & 0xF) << 3) | (((x) & 0xF) >> 1) | (((y) & 0xF) << 7))])
+#define getslight(x, y, z) ((slightdata(x,y,z) >> (((x)&1)<<2)) & 0xF)
+#define getblight(x, y, z) ((blightdata(x,y,z) >> (((x)&1)<<2)) & 0xF)
+#define setslight(x, y, z, v) {register unsigned char *value = &slightdata(x,y,z); *value = ((*value & ((0xF0) >> (((x)&1)<<2))) | ((v) << (((x)&1)<<2)));}
+#define setblight(x, y, z, v) {register unsigned char *value = &blightdata(x,y,z); *value = ((*value & ((0xF0) >> (((x)&1)<<2))) | ((v) << (((x)&1)<<2)));}
+
+time_t starttime;
+
+void inclight(long long x, long long y, long long z, int d) {
+	if (d == 0 || (d < 15 && !tblocks[blockdata(x,y,z)]))
+		return;
+	d--;
+
+	if (getblight(x-1, y, z) <= d)
+		inclight(x-1, y, z, d);
+	if (getblight(x+1, y, z) <= d)
+		inclight(x+1, y, z, d);
+	if (getblight(x, y-1, z) <= d)
+		inclight(x, y-1, z, d);
+	if (getblight(x, y+1, z) <= d)
+		inclight(x, y+1, z, d);
+	if (getblight(x, y, z-1) <= d)
+		inclight(x, y, z-1, d);
+	if (getblight(x, y, z+1) <= d)
+		inclight(x, y, z+1, d);
+
+	setblight(x, y, z, d + 1);	
+}
+
 void updatelight(int cnt) {
-	int ychunksize = sizeof(header_blocks) + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight) + 2048 + sizeof(header_blocklight) + 2048 + sizeof(footer);
 	if (!cnt)
 		return;
 
-	for (int xz = 0; xz < 256; xz++) {
-		int hide = 0;
-		for (int y = (cnt << 4) - 1; y >= 0; y--) {
-			unsigned char *b = wbuf + sizeof(header) + (y / 16) * ychunksize + sizeof(header_blocks);
-			unsigned char *l = b + 4096 + sizeof(header_data) + 2048 + sizeof(header_skylight);
-			int xx = xz | ((y & 0xF) << 8);
-			if (!hide && !tblocks[b[xx]])
-				hide = 1;
-			if (hide) {
-				if (!(xx & 1))
-					l[xx/2] = (l[xx/2] & 0xF0) | 0x0d;
-				else
-					l[xx/2] = (l[xx/2] & 0x0F) | 0xd0;
+	unsigned int wpos = chunks[4].wpos;
+	unsigned char *wbuf = chunks[4].wbuf;
+	lmx = (chunks[4].x - 1) << 4;
+	lmz = (chunks[4].z - 1) << 4;
+	chunks[4].isloaded = 1;
+	int i, j;
+	for (i = 0; i < 9; i++) {
+		if (i != 4) {
+			chunks[i].x = ((lmx + ((i % 3) << 4)) >> 4);
+			chunks[i].z = ((lmz + ((i / 3) << 4)) >> 4);
+			loadchunk(chunks + i);
+			if (chunks[i].isloaded != 1)
+				memset(chunks[i].wbuf + blockbase, 0x01, 4096);
+		}
+		if (chunks[i].timestamp < starttime) {
+			for (j = 0; j < cnt; j++)
+				memset(chunks[i].wbuf + blightbase + j * ychunksize, 0x00, 2048);
+		}
+		for (j = 0; j < cnt; j++)
+			memcpy(chunks[i].wbuf + (sizeof(chunks[i].wbuf) - (j + 1) * 2048), chunks[i].wbuf + blightbase + j * ychunksize, 2048);
+	}
+	long long x, y, z;
+
+	for (z = lmz + 16; z < lmz + 32; z++) {
+		for (x = lmx + 16; x < lmx + 32; x++) {
+			int hide = 0;
+			for (y = (cnt << 4) - 1; y >= 0; y--) {
+				unsigned char b = blockdata(x, y, z);
+				if (!hide && !tblocks[b])
+					hide = 1;
+				if (hide) {
+					setslight(x, y, z, 13);
+				}
+				else {
+					setslight(x, y, z, 15);
+				}
+				if ((b == 11 && getslight(x, y, z) == 15) || b == 50 || b == 89 || b == 91 || b == 138 || b == 169 || b == 198)
+					inclight(x,y,z,15);
 			}
+		}
+	}
+
+	for (i = 0; i < 9; i++) {
+		if (chunks[i].isloaded != 1)
+			continue;
+		if (i != 4) {
+			for (j = 0; j < cnt; j++) {
+				if (memcmp(chunks[i].wbuf + (sizeof(chunks[i].wbuf) - (j + 1) * 2048), chunks[i].wbuf + blightbase + j * ychunksize, 2048))
+					break;
+			}
+			if (j == cnt)
+				continue;
+		}
+		int ret;
+		if (ret = writechunk(chunks + i)) {
+			printf("writechunk:%d\n", ret);
+			return;
 		}
 	}
 //	printf("cnt=%d, wpos=%d\n", cnt, wpos);
 //	hexdump(wbuf,wpos);
 //	exit(0);
+}
+
+int test() {
+	printf("map loading test\n");
+	chunks->x = 0;
+	chunks->z = 0;
+	printf("loadchunk: %d\n", loadchunk(chunks));
+	printf("wpos: %d\n", chunks->wpos);
+
+	lmx = 0;
+	lmz = 0;
+	printf("block: %d\n", blockdata(0, 0, 0));
+	setblight(0,0,0,1);
+	printf("skylight: %d\n", getslight(0, 0, 0) & 0xF);
+	printf("blocklight: %d\n", getblight(0, 0, 0) & 0xF);
+
+	return 0;
 }
 
 int main(int argc, char** argv)
@@ -478,10 +627,14 @@ int main(int argc, char** argv)
 		printf("bed2java (map directory path)\n");
 		return -1;
 	}
+	if (!strcmp(argv[1], "-t")) {
+		return test();
+	}
 	if (strlen(argv[1]) > 1000) {
 		printf("path too long\n");
 		return -2;
 	}
+	starttime = time(0);
 	sprintf(path, "%s/db", argv[1]);
 
 	mkdir("region", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
@@ -525,23 +678,26 @@ int main(int argc, char** argv)
 			continue;
 
 		if (lx != x || lz != z) {
-			updatelight(cnt);
-
-			memcpy(wbuf + wpos, ender, sizeof(ender));
-			wpos += sizeof(ender);
-			*(unsigned int *)(wbuf + 0x55 + 269) = htonl(cnt);
-			if (ret = writechunk(lx, lz)) {
-				printf("writechunk:%d\n", ret);
-				return -3;
+			if (cnt > 0) {
+				memcpy(chunks[4].wbuf + sizeof(header) + cnt * ychunksize, ender, sizeof(ender));
+				*(unsigned int *)(chunks[4].wbuf + 0x55 + 269) = htonl(cnt);
+				chunks[4].wpos = sizeof(header) + cnt * ychunksize + sizeof(ender);
+				updatelight(cnt);
 			}
-			memcpy(wbuf, header, sizeof(header));
-			wpos = sizeof(header);
+
+			chunks[4].x = x;
+			chunks[4].z = z;
+			loadchunk(chunks + 4);
+			if (chunks[4].isloaded != 1) {
+				memcpy(chunks[4].wbuf, header, sizeof(header));
+				chunks[4].wpos = sizeof(header);
+				*(unsigned int *)(chunks[4].wbuf + 0x3A + 269) = htonl(x);
+				*(unsigned int *)(chunks[4].wbuf + 0x45 + 269) = htonl(z);
+			}
 			cnt = 0;
-			*(unsigned int *)(wbuf + 0x3A + 269) = htonl(x);
-			*(unsigned int *)(wbuf + 0x45 + 269) = htonl(z);
 		}
 		if (str[8] == 45) {
-			memcpy(wbuf + 24, data + 0x200, 256);
+			memcpy(chunks[4].wbuf + 24, data + 0x200, 256);
 //			for (int i = 0; i < 256; i++) {
 //				unsigned char c = data[0x200 + i];
 //				if (c == 21 || c == 22 || c ==149 || c == 23 || c == 151) {
@@ -563,10 +719,19 @@ int main(int argc, char** argv)
 		lz = z;
     }
 
-	if (ret = writechunk(lx, lz)) {
-		printf("writechunk:%d\n", ret);
-		return -3;
+	if (cnt > 0) {
+		memcpy(chunks[4].wbuf + sizeof(header) + cnt * ychunksize, ender, sizeof(ender));
+		*(unsigned int *)(chunks[4].wbuf + 0x55 + 269) = htonl(cnt);
+		chunks[4].wpos = sizeof(header) + cnt * ychunksize + sizeof(ender);
+		updatelight(cnt);
 	}
+
+//	chunks[4].x = lx;
+//	chunks[4].z = lz;
+//	if (ret = writechunk(chunks + 4)) {
+//		printf("writechunk:%d\n", ret);
+//		return -3;
+//	}
 
     if (false == it->status().ok())
     {
